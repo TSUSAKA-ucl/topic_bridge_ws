@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>WebXR Controller Pose WebSocket Sender</title>
+  <style>
+    .a-enter-vr-button {
+      top: auto !important;
+      bottom: 20px !important;
+      right: 20px !important;
+      z-index: 9999;
+    }
+  </style>
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+</head>
+<body>
+  <!--
+  <a-scene embedded vr-mode-ui="enabled: true" renderer="logarithmicDepthBuffer: true">
+    -->
+  <a-scene>
+    <a-box position="0 1.5 -2" rotation="0 45 0" color="#4CC3D9"></a-box>
+    <a-sky color="#ECECEC"></a-sky>
+    <!-- カメラ+コントローラ -->
+    <a-entity id="cameraRig" position="0 1.6 0">
+      <a-camera id="camera" wasd-controls-enabled="false"></a-camera>
+      <a-entity id="rightController" hand-controls="hand: right"></a-entity>
+      <a-entity id="leftController" hand-controls="hand: left"></a-entity>
+    </a-entity>
+  </a-scene>
+
+  <script>
+    // WebSocket接続先を適宜変更してください
+    const ws = new WebSocket('ws://localhost:9090');
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+    };
+    ws.onerror = (err) => {
+      console.error('WebSocket error', err);
+    };
+
+    // コントローラの位置・回転を送信する関数
+    function sendControllerPose(controllerEl, hand) {
+      if (!controllerEl) return;
+      const pos = controllerEl.object3D.position;
+      const quat = controllerEl.object3D.quaternion;
+
+      const msg = {
+        hand: hand,
+        position: { x: pos.x, y: pos.y, z: pos.z },
+        orientation: { x: quat.x, y: quat.y, z: quat.z, w: quat.w },
+        timestamp: Date.now()
+      };
+
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      }
+    }
+
+    // フレームごとに送信
+    AFRAME.registerComponent('send-pose', {
+      tick: function () {
+        const rightController = document.querySelector('#rightController');
+        const leftController = document.querySelector('#leftController');
+
+        sendControllerPose(rightController, 'right');
+        sendControllerPose(leftController, 'left');
+      }
+    });
+
+    // シーンにコンポーネント追加して動かす
+    document.querySelector('a-scene').setAttribute('send-pose', '');
+  </script>
+</body>
+</html>

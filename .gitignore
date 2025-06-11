@@ -1,0 +1,10 @@
+node_modules/
+# ロックファイルはプロジェクトのポリシーによる
+# 管理したいならコメントアウトしてください
+package-lock.json
+pnpm-lock.yaml
+# ビルド成果物（あれば）
+dist/
+build/
+.next/      # Next.js のビルド成果物
+.out/       # 例：他ツールの出力先
