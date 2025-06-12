@@ -5,7 +5,8 @@ const wss = new WebSocket.Server({ port: 9090 });  // WebSocket ポート
 
 rclnodejs.init().then(() => {
   const node = new rclnodejs.Node('pose_bridge');
-  const pub = node.createPublisher('geometry_msgs/msg/PoseStamped', 'controller_pose');
+  const pubR = node.createPublisher('geometry_msgs/msg/PoseStamped', 'right_controller_pose');
+  const pubL = node.createPublisher('geometry_msgs/msg/PoseStamped', 'left_controller_pose');
 
   wss.on('connection', (ws) => {
     console.log('WebSocket connected');
@@ -14,18 +15,18 @@ rclnodejs.init().then(() => {
       try {
         const data = JSON.parse(message);
 	const ts = data.timestamp;
-	// const sec = Math.floor(ts/1000);
-	// const nanosec = Math.floor((ts % 1000)*1e6);
-	const sec = BigInt(Math.floor(ts/1000));
-	const nanosec = BigInt(Math.floor((ts % 1000)*1e6));
-	// 型を確認
-	// console.log('sec:', sec, typeof sec);
-	// console.log('nanosec:', nanosec, typeof nanosec);
-	//
-	const timeStamp = new rclnodejs.Time(sec,nanosec)
+	const sec = Math.floor(ts/1000);
+	const nanosec = Math.floor((ts % 1000)*1e6);
+	// const sec = BigInt(Math.floor(ts/1000));
+	// const nanosec = BigInt(Math.floor((ts % 1000)*1e6));
+	// const timeStamp = new rclnodejs.Time(sec,nanosec,
+	// 				     rclnodejs.Clock.ClockType.ROS_TIME)
         const msg = {
           header: {
-            stamp: timeStamp,
+            stamp: {
+	      sec: sec,
+	      nanosec: nanosec,
+	    },
             frame_id: 'world',
           },
           pose: {
@@ -34,7 +35,13 @@ rclnodejs.init().then(() => {
           },
         };
 	// console.log('msg: ', msg);
-        pub.publish(msg);
+	if (data.hand == 'right') {
+	  pubR.publish(msg);
+	} else if (data.hand == 'left') {
+	  pubL.publish(msg);
+	} else {
+	  console.error('Unknown hand:', data.hand);
+	}
       } catch (err) {
         console.error('Invalid message:', err);
       }

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>WebXR Controller Pose WebSocket Sender</title>
+  <!--
   <style>
     .a-enter-vr-button {
       top: auto !important;
@@ -11,6 +12,7 @@
       z-index: 9999;
     }
   </style>
+  -->
   <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
 </head>
 <body>
@@ -29,8 +31,10 @@
   </a-scene>
 
   <script>
-    // WebSocket接続先を適宜変更してください
-    const ws = new WebSocket('ws://localhost:9090');
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = location.hostname;
+    const port = 9090;  // WebSocketサーバーのポート
+    const ws = new WebSocket(`${protocol}//${host}:${port}`);
 
     ws.onopen = () => {
       console.log('WebSocket connected');

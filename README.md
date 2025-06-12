@@ -7,5 +7,3 @@
 3. ブラウザで`http:localhost:8080/for-rclnodejs.html`を見る
 4. F12でブラウザのDevToolsを出し、immersive web emulatorのWebXR画面を出して操作する
 5. 別の端末で `ros2 topic echo /controller_pose`でROSのトピックを見る
-
-`rclnodejs`の何処かでタイムスタンプが消えてしまっているが当面気にしない
