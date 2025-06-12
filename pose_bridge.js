@@ -5,12 +5,14 @@ const wss = new WebSocket.Server({ port: 9090 });  // WebSocket ポート
 
 rclnodejs.init().then(() => {
   const node = new rclnodejs.Node('pose_bridge');
+  // node.declareParameter({name: 'base_name', value: 'base_link'});
+  node.declareParameter(new rclnodejs.Parameter('base_name', rclnodejs.ParameterType.PARAMETER_STRING, 'base_link'));
   const pubR = node.createPublisher('geometry_msgs/msg/PoseStamped', 'right_controller_pose');
   const pubL = node.createPublisher('geometry_msgs/msg/PoseStamped', 'left_controller_pose');
 
   wss.on('connection', (ws) => {
     console.log('WebSocket connected');
-
+    // WebSocket からのメッセージ受信
     ws.on('message', (message) => {
       try {
         const data = JSON.parse(message);
@@ -21,13 +23,14 @@ rclnodejs.init().then(() => {
 	// const nanosec = BigInt(Math.floor((ts % 1000)*1e6));
 	// const timeStamp = new rclnodejs.Time(sec,nanosec,
 	// 				     rclnodejs.Clock.ClockType.ROS_TIME)
+	const frameID = node.getParameter('base_name').value;
         const msg = {
           header: {
             stamp: {
 	      sec: sec,
 	      nanosec: nanosec,
 	    },
-            frame_id: 'world',
+            frame_id: frameID,
           },
           pose: {
             position: data.position,
