@@ -51,9 +51,11 @@
 
       const msg = {
         hand: hand,
+    	type: 'PoseStamped',
         position: { x: pos.x, y: pos.y, z: pos.z },
         orientation: { x: quat.x, y: quat.y, z: quat.z, w: quat.w },
-        timestamp: Date.now()
+        timestamp: Date.now(),
+     	frame_id: 'world',
       };
 
       if (ws.readyState === WebSocket.OPEN) {

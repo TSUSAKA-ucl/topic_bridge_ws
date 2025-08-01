@@ -24,8 +24,11 @@ class PoseBridgeNode(Node):
     def publish_pose(self, data):
         try:
             pose = PoseStamped()
-            pose.header.stamp = self.get_clock().now().to_msg()
-            pose.header.frame_id = "map"
+            # pose.header.stamp = self.get_clock().now().to_msg()
+            timestamp = int(data['timestamp'])
+            pose.header.stamp.sec = timestamp//1000
+            pose.header.stamp.nanosec = (timestamp % 1000) * 1000
+            pose.header.frame_id = data['frame_id']
 
             pos = data['position']
             ori = data['orientation']
