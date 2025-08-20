@@ -60,20 +60,21 @@ class PoseBridgeNode(Node):
                     pose.pose.orientation.z = float(ori['z'])
                     pose.pose.orientation.w = float(ori['w'])
                     publisher.publish(pose)
-                    self.get_logger().info(f"Published pose data to {topic_name}")
+                    # self.get_logger().info(f"Published pose data to {topic_name}")
                 elif type == Actuators:
-                    joint = Actuaturs()
+                    actuator = Actuators()
                     actuator.header.stamp.sec = stamp_sec
                     actuator.header.stamp.nanosec = stamp_nanosec
                     actuator.header.frame_id = frame_id
                     data.setdefault('position', [])
                     data.setdefault('velocity', [])
                     data.setdefault('normalized', [])
+                    # self.get_logger().info(f"Size of position {data['position']}")
                     actuator.position = [float(x) for x in data['position']]
                     actuator.velocity = [float(x) for x in data['velocity']]
                     actuator.normalized = [float(x) for x in data['normalized']]
                     publisher.publish(actuator)
-                    self.get_logger().info(f"Published actuator data to {topic_name}")
+                    # self.get_logger().info(f"Published actuator data to {topic_name}")
                 else:
                     self.get_logger().warning(f"Unknown topic name: {topic_name} with type {type}")
             except Exception as e:

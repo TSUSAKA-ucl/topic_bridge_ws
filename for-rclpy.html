@@ -63,6 +63,15 @@
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(binary);
       }
+
+      const actMsg = {
+	topic: 'actuator1',
+	position: [1.2, 2.3, 3.4],
+	velocity: [123, 234, 345],
+	timestamp: Date.now(),
+      }
+      const actBin = MessagePack.encode(actMsg);
+      if (ws.readyState === WebSocket.OPEN) { ws.send(actBin); }
     }
 
     // フレームごとに送信
