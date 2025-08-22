@@ -1,8 +1,16 @@
 import os
+
 import rclpy
 from rclpy.node import Node
+from rosidl_runtime_py.convert import message_to_ordereddict
+from rosidl_runtime_py.set_message import set_message_fields
+
 from geometry_msgs.msg import PoseStamped
 from actuator_msgs.msg import Actuators
+from std_msgs.msg import String
+from builtin_interfaces.msg import Time
+
+
 import ssl
 import websockets
 import asyncio
@@ -10,29 +18,42 @@ import json
 import msgpack
 from threading import Thread
 
-class PoseBridgeNode(Node):
-    def __init__(self):
+class TopicBridgeNode(Node):
+    def __init__(self, loop):
+        self.loop = loop
         super().__init__('websocket_topic_bridge')
+        initial_pub = {'pose1':PoseStamped,
+                       'pose2':PoseStamped,
+                       'pose3':PoseStamped,
+                       'actuator1':Actuators,
+                       'actuator2':Actuators,
+                       'time1':Time,
+                       'time2':Time,
+                       'time3':Time
+                       }
+        initial_sub = {'output_pose':PoseStamped,
+                       'joint1':Actuators,
+                       'string1':String,
+                       'string2':String,
+                       }
         self.publishers_ = {}
-        for topic in ['pose1', 'pose2', 'pose3']:
-            publisher = self.create_publisher(PoseStamped, topic, 10)
+        for topic in initial_pub.keys():
+            publisher = self.create_publisher(initial_pub[topic], topic, 10)
             self.publishers_[topic] = publisher
-        for topic in ['actuator1', 'actuator2']:
-            publisher = self.create_publisher(Actuators, topic, 10)
-            self.publishers_[topic] = publisher
-        self.publisher_ = self.create_publisher(PoseStamped, 'input_pose', 10)
-        self.subscription_ = self.create_subscription(
-            PoseStamped,
-            'output_pose',
-            self.pose_callback,
-            10
-        )
+        self.subscribers_ = {}
+        for topic in initial_sub.keys():
+            subscription = self.create_subscription(
+                initial_sub[topic], topic,
+                lambda msg, name=topic: self.sub_callback(msg, name),
+                10
+            )
+            self.subscribers_[topic] = subscription
         self.websocket_clients = set()
-        self.get_logger().info("PoseBridgeNode initialized")
+        self.get_logger().info("TopicBridgeNode initialized")
 
-    def publish_pose(self, data):
+    def publish_topic(self, data):
         try:
-            topic_name = data['topic']
+            topic_name = data.pop('topic')
             publisher = self.publishers_[topic_name]
             type = publisher.msg_type
         except KeyError:
@@ -40,76 +61,47 @@ class PoseBridgeNode(Node):
             return
         else:
             try:
-                timestamp = int(data.get('timestamp',
+                timestamp = int(data.pop('javascriptStamp',
                                          self.get_clock().now().nanoseconds / 1000))
-                stamp_sec = timestamp // 1000
-                stamp_nanosec = (timestamp % 1000) * 1000
-                frame_id = data.get('frame_id', 'world')
-                if type == PoseStamped:
-                    pose = PoseStamped()
-                    pose.header.stamp.sec = stamp_sec
-                    pose.header.stamp.nanosec = stamp_nanosec
-                    pose.header.frame_id = frame_id
-                    pos = data['position']
-                    ori = data['orientation']
-                    pose.pose.position.x = float(pos['x'])
-                    pose.pose.position.y = float(pos['y'])
-                    pose.pose.position.z = float(pos['z'])
-                    pose.pose.orientation.x = float(ori['x'])
-                    pose.pose.orientation.y = float(ori['y'])
-                    pose.pose.orientation.z = float(ori['z'])
-                    pose.pose.orientation.w = float(ori['w'])
-                    publisher.publish(pose)
-                    # self.get_logger().info(f"Published pose data to {topic_name}")
-                elif type == Actuators:
-                    actuator = Actuators()
-                    actuator.header.stamp.sec = stamp_sec
-                    actuator.header.stamp.nanosec = stamp_nanosec
-                    actuator.header.frame_id = frame_id
-                    data.setdefault('position', [])
-                    data.setdefault('velocity', [])
-                    data.setdefault('normalized', [])
-                    # self.get_logger().info(f"Size of position {data['position']}")
-                    actuator.position = [float(x) for x in data['position']]
-                    actuator.velocity = [float(x) for x in data['velocity']]
-                    actuator.normalized = [float(x) for x in data['normalized']]
-                    publisher.publish(actuator)
-                    # self.get_logger().info(f"Published actuator data to {topic_name}")
-                else:
-                    self.get_logger().warning(f"Unknown topic name: {topic_name} with type {type}")
+                # self.get_logger().info('data: '+json.dumps(data))
+                data['header']['stamp'] = {}
+                data['header']['stamp']['sec'] = timestamp // 1000
+                data['header']['stamp']['nanosec'] = (timestamp % 1000) * 1000
+                msg = type()
+                # msg = None
+                # if type == PoseStamped:
+                #     msg = PoseStamped()
+                # else:
+                #     self.get_logger().warning(f"Unknown topic name: {topic_name} with type {type}")
+                if msg is not None:
+                    # self.get_logger().info('before data: '+json.dumps(data))
+                    set_message_fields(msg, data)
+                    publisher.publish(msg)
+                    # self.get_logger().info(f"Published to {topic_name}")
             except Exception as e:
                 self.get_logger().error(f"Invalid input data: {e}")
 
-    def pose_callback(self, msg: PoseStamped):
-        # Convert PoseStamped to JSON
-        message = {
-            "position": {
-                "x": msg.pose.position.x,
-                "y": msg.pose.position.y,
-                "z": msg.pose.position.z
-            },
-            "orientation": {
-                "x": msg.pose.orientation.x,
-                "y": msg.pose.orientation.y,
-                "z": msg.pose.orientation.z,
-                "w": msg.pose.orientation.w
-            }
-        }
-        data_str = json.dumps(message)
+    def sub_callback(self, msg, topic_name):
+        # Convert ROS2 message to dit
+        msg_dict = message_to_ordereddict(msg)
+        # self.get_logger().info('Converted to dict: %s' % msg_dict)
+        msg_dict['topic'] = topic_name
+        # data_str = json.dumps(msg_dict)
+        binary = msgpack.packb(msg_dict, use_bin_type=True)
         # Send to all connected websocket clients
         for client in list(self.websocket_clients):
             asyncio.run_coroutine_threadsafe(
-                client.send(data_str), asyncio.get_event_loop()
+                client.send(binary), self.loop
             )
 
 
-async def websocket_handler(websocket, node: PoseBridgeNode):
+async def websocket_handler(websocket, node: TopicBridgeNode):
     node.websocket_clients.add(websocket)
     try:
         async for binary in websocket:
             try:
                 data = msgpack.unpackb(binary)
-                node.publish_pose(data)
+                node.publish_topic(data)
             except Exception as e:
                 node.get_logger().error(f"WebSocket MessagePack error: {e}")
     finally:
@@ -121,9 +113,9 @@ def make_handler(node):
         await websocket_handler(ws, node)
     return handler
 
-async def main():
+async def main(port, loop):
     rclpy.init()
-    node = PoseBridgeNode()
+    node = TopicBridgeNode(loop)
 
     # Run rclpy executor in separate thread
     def ros_spin():
@@ -141,13 +133,12 @@ async def main():
     ssl_context.load_cert_chain(certfile=certfile, keyfile=keyfile)
     start_server = websockets.serve(
         make_handler(node),
-        "0.0.0.0", 9090,
+        "0.0.0.0", port,
         ssl=ssl_context
     )
 
-    loop = asyncio.get_event_loop()
     await start_server
-    print("WebSocket server running at ws://0.0.0.0:9090")
+    print("WebSocket server running at wss://0.0.0.0:"+str(port))
     try:
         await asyncio.Future()
     except KeyboardInterrupt:
@@ -157,4 +148,6 @@ async def main():
         rclpy.shutdown()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    port = 9090
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main(port, loop))

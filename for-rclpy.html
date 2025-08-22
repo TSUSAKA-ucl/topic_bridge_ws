@@ -44,6 +44,30 @@
     ws.onerror = (err) => {
       console.error('WebSocket error', err);
     };
+    ws.onmessage = function(event) {
+      // event.data が ArrayBuffer または Blob で送られてくる場合がある
+      let arrayBufferPromise;
+
+      if (event.data instanceof Blob) {
+	// console.log('event.data is an instance of Blob');
+	// Blob なら ArrayBuffer に変換
+	arrayBufferPromise = event.data.arrayBuffer();
+      } else if (event.data instanceof ArrayBuffer) {
+	arrayBufferPromise = Promise.resolve(event.data);
+      } else if (event.data instanceof Uint8Array) {
+	arrayBufferPromise = Promise.resolve(event.data.buffer);
+      } else {
+	console.error('Unknown data type:', event.data);
+	return;
+      }
+
+      arrayBufferPromise.then(buffer => {
+	// Uint8Array に変換して decode
+	const uint8 = new Uint8Array(buffer);
+	const obj = MessagePack.decode(uint8);
+	console.log(obj);
+      });
+    };
 
     // コントローラの位置・回転を送信する関数
     function sendControllerPose(controllerEl, hand) {
@@ -53,10 +77,14 @@
 
       const msg = {
     	topic: 'pose1',
-        position: { x: pos.x+1, y: pos.y+2, z: pos.z+3 },
-        orientation: { x: quat.x, y: quat.y, z: quat.z, w: quat.w },
-        timestamp: Date.now(),
-     	frame_id: 'world',
+        javascriptStamp: Date.now(),
+	header: {
+	  frame_id: 'world',
+	},
+	pose: {
+          position: { x: pos.x+1, y: pos.y+2, z: pos.z+3 },
+          orientation: { x: quat.x, y: quat.y, z: quat.z, w: quat.w }
+	},
       };
       const binary = MessagePack.encode(msg);
 
@@ -66,9 +94,10 @@
 
       const actMsg = {
 	topic: 'actuator1',
+        javascriptStamp: Date.now(),
+	header: { },
 	position: [1.2, 2.3, 3.4],
 	velocity: [123, 234, 345],
-	timestamp: Date.now(),
       }
       const actBin = MessagePack.encode(actMsg);
       if (ws.readyState === WebSocket.OPEN) { ws.send(actBin); }
