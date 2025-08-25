@@ -14,11 +14,11 @@ PORT = 4443
 # 任意のディレクトリをルートにする
 Handler = http.server.SimpleHTTPRequestHandler
 
-httpd = http.server.HTTPServer((HOST, PORT), Handler)
+httpd = http.server.HTTPServer(('', PORT), Handler)
 
 basedir = os.path.dirname(__file__)  # this directory
-certfile = os.path.join(basedir, "..", "certificates", "localhost.pem")
-keyfile = os.path.join(basedir, "..", "certificates", "localhost-key.pem")
+certfile = os.path.join(basedir, "..", "certificates", "cert.pem")
+keyfile = os.path.join(basedir, "..", "certificates", "key.pem")
 
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(certfile=certfile, keyfile=keyfile)

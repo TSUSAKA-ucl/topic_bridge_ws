@@ -2,17 +2,6 @@
 [rclpy(ROS2)のインストール](https://docs.ros.org/en/jazzy/Installation.html)に
 関しては説明略。現状jazzy以外の動作確認はしていない
 
-## (参考)Pose Bridge WebServer: `rclnodejs`を使ったWebSocketサーバーのテスト
-
-1. [`for-rclnodejs.html`](./for-rclnodejs.html)のある場所で
-   HTTP serverを、`python3 -m http.server 8080`で立ち上げる
-2. [`runme.sh`](./runme.sh)(`node pose_bridge.js`)で
-   WebSocketサーバーを立ち上げる  
-   最初は、ここで`npm install`で依存関係をインストールしておく
-3. ブラウザで`http:localhost:8080/for-rclnodejs.html`を見る
-4. F12でブラウザのDevToolsを出し、immersive web emulatorのWebXR画面を出して操作する
-5. 別の端末で `ros2 topic echo /right_controller_pose`でROSのトピックを見る
-
 ## Python版ブリッジ: httpsおよびwss使用
 websocketサーバーは[`websocket_topic_bridge.py`](
 websocket_topic_bridge.py). 
@@ -21,6 +10,49 @@ httpsサーバーは[`server.sh`](server.sh)(シバン付きpython).
 
 ### `websocket_topic_bridge.py`のnodejs版との違い
 
+#### 立ち上げ方と、jsからの使い方
+##### 立ち上げ方
+ros2(rclpy)およびpythonの`msgpack`がインストール済の環境で
+```
+python3 websocket_topic_bridge.py
+```
+と実行。pub/subするトピックを変更したい場合は、[`default_topics.py`](
+default_topics.py)を参考にしてトピックのリストを作り引数に与える
+```
+python3 websocket_topic_bridge.py my_topics.py
+```
+現状プロトコルはwssに固定。ポート番号は9090だが変更したいときは第3引数に与える
+```
+python3 websocket_topic_bridge.py my_topics.py 9443
+```
+wssのためのcertファイルとkeyファイルは(オレオレ認証局なので)、このファイル
+からの相対パス(`../certificates/{cert,key}.pem`など)がベタ書きしてある  
+SAN(Subject Alternative Name)を使った複数ホスト名対応の証明書作成は、
+適当なディレクトリに[`./Make_cert/san.cnf`](Make_cert/san.cnf)と
+[`./Make_cert/ssl.sh`](Make_cert/ssl.sh)をコピーし、
+[`./Make_cert/san.cnf`](Make_cert/san.cnf)を書き換えて
+[`./Make_cert/ssl.sh`](Make_cert/ssl.sh)を実行すればできる。
+ブラウザに証明書を受け入れてもらうために、このサーバーだけでなく
+httpsサーバーも同じ証明書を使う必要がある
+
+##### ブラウザ側(javaScript)での使い方
+jsからpublishするときは、IDL(ros2の.msgファイル)の定義に従ってjsオブジェクトを
+作成し、さらに`topic`というキーでトピック名を付けて、それをMessagePack.encodeで
+エンコードしてws.sendで送る。`javascriptStamp`というキーでjavascriptの
+時刻(ミリ秒単位)を付与しておくと、`websocket_topic_bridge.py`が
+メッセージのheaderのstampをその値に書き換えるため、`header`キーには
+空のオブジェクト`{}`を付けておくだけでも利用できる。`topic`と`javascriptStamp`
+キーは、pythonでros2メッセージにするときに取り除かれる。
+
+jsでのsubscribeは, webSocketのonmessageになる。さらにBlob(ブラウザによる?)で
+来るので、`arrayBuffer()`で変換しさらに`MessagePack.decode`でデコードする必要が
+ある。`websocket_topic_bridge.py`によりメッセージの内容だけでなく`topic`と
+いうスロットにトピック名が付与される。
+
+実際のコードは[`for-rclpy.html`](for-rclpy.html)内のjsのコードを参照
+
+
+#### 説明
 nodejs版と互換性は無い
 1. `ssl.SSLContext`でcertfileとkeyfileを使い、wssで接続する
 2. ROS2のpublisherとsubscriberの両対応
@@ -43,31 +75,6 @@ Next.jsの場合は`@msgpack/msgpack`をinstallしimportすれば良い。webWor
 場合はimportしてVite等でビルド(bind)するのが簡単  
 サーバー側(Python)は、`pip install msgpack`だけで良い
 
-#### 立ち上げ方と使い方
-##### 立ち上げ方
-ros2(rclpy)およびpythonの`msgpack`がインストール済の環境で
-```
-python3 websocket_topic_bridge.py
-```
-と実行するだけ。
-
-現状、プロトコルはwssポート番号は9090に固定。
-wssのためのcertファイルとkeyファイルは(オレオレ認証局なので)、このファイル
-からの相対パス(`../certificates/localhost.pem`など)がベタ書きしてある
-##### 使い方
-jsからpublishするときは、IDL(ros2の.msgファイル)の定義に従ってオブジェクトを
-作成し、さらに`topic`というキーでトピック名を付けて、それをMessagePack.encodeで
-エンコードしてws.sendで送る。`javascriptStamp`というキーでjavascriptの
-時刻(ミリ秒単位)を付与しておくと、`websocket_topic_bridge.py`が
-メッセージのheaderのstampをその値に書き換えるため、`header`キーには
-空のオブジェクト`{}`を付けておくだけでも利用できる。`topic`と`javascriptStamp`
-キーは、pythonでros2メッセージにするときに取り除かれる。
-
-jsでのsubscribeは, webSocketのonmessageになる。さらにBlob(ブラウザによる?)で
-来るので、`arrayBuffer()`で変換しさらに`MessagePack.decode`でデコードする必要が
-ある。`websocket_topic_bridge.py`によりメッセージの内容だけでなく`topic`と
-いうスロットにトピック名が付与される。
-
 #### 実装メモ
 pythonのwebsocketサーバー(`import websockets`)は`asyncio`対応で、
 わかりやすくメインスレッドで動かす。同時にros2 topicをsubscribeするため
@@ -89,3 +96,14 @@ publisher/subscriptionをバリューにして登録することで、その
 メッセージならばjson stringの方が(簡単で)良いかもしれないが、PoseStamped
 程度になればMessagePackのほうが良くなるだろう。さらにjsでのencodeと
 pythonでのdecodeは記述も簡単である。
+
+## (参考)Pose Bridge WebServer: `rclnodejs`を使ったWebSocketサーバーのテスト
+
+1. [`for-rclnodejs.html`](./for-rclnodejs.html)のある場所で
+   HTTP serverを、`python3 -m http.server 8080`で立ち上げる
+2. [`runme.sh`](./runme.sh)(`node pose_bridge.js`)で
+   WebSocketサーバーを立ち上げる  
+   最初は、ここで`npm install`で依存関係をインストールしておく
+3. ブラウザで`http:localhost:8080/for-rclnodejs.html`を見る
+4. F12でブラウザのDevToolsを出し、immersive web emulatorのWebXR画面を出して操作する
+5. 別の端末で `ros2 topic echo /right_controller_pose`でROSのトピックを見る

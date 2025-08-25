@@ -1,15 +1,12 @@
 import os
+import sys
+import importlib
+import signal
 
 import rclpy
 from rclpy.node import Node
 from rosidl_runtime_py.convert import message_to_ordereddict
 from rosidl_runtime_py.set_message import set_message_fields
-
-from geometry_msgs.msg import PoseStamped
-from actuator_msgs.msg import Actuators
-from std_msgs.msg import String
-from builtin_interfaces.msg import Time
-
 
 import ssl
 import websockets
@@ -17,25 +14,15 @@ import asyncio
 import json
 import msgpack
 from threading import Thread
+_do_shutdown = True # False if shutdown is in progress
 
 class TopicBridgeNode(Node):
-    def __init__(self, loop):
+    def __init__(self, loop, initial_pub, initial_sub):
         self.loop = loop
         super().__init__('websocket_topic_bridge')
-        initial_pub = {'pose1':PoseStamped,
-                       'pose2':PoseStamped,
-                       'pose3':PoseStamped,
-                       'actuator1':Actuators,
-                       'actuator2':Actuators,
-                       'time1':Time,
-                       'time2':Time,
-                       'time3':Time
-                       }
-        initial_sub = {'output_pose':PoseStamped,
-                       'joint1':Actuators,
-                       'string1':String,
-                       'string2':String,
-                       }
+        # #### initial_pub & initial_sub are defined in default_topics.py
+        # initial_pub = {'actuator1':Actuators, 'time1':Time, }
+        # initial_sub = {'output_pose':PoseStamped, 'string1':String, }
         self.publishers_ = {}
         for topic in initial_pub.keys():
             publisher = self.create_publisher(initial_pub[topic], topic, 10)
@@ -66,7 +53,7 @@ class TopicBridgeNode(Node):
                 # self.get_logger().info('data: '+json.dumps(data))
                 data['header']['stamp'] = {}
                 data['header']['stamp']['sec'] = timestamp // 1000
-                data['header']['stamp']['nanosec'] = (timestamp % 1000) * 1000
+                data['header']['stamp']['nanosec'] = (timestamp % 1000) * 1000 * 1000
                 msg = type()
                 # msg = None
                 # if type == PoseStamped:
@@ -100,10 +87,14 @@ async def websocket_handler(websocket, node: TopicBridgeNode):
     try:
         async for binary in websocket:
             try:
+                if isinstance(binary, str) :
+                    node.get_logger().info(f'socket receive STRING: {binary}')
                 data = msgpack.unpackb(binary)
                 node.publish_topic(data)
             except Exception as e:
-                node.get_logger().error(f"WebSocket MessagePack error: {e}")
+                node.get_logger().warning(f"WebSocket MessagePack error: {e}")
+    except websockets.ConnectionClosed:
+        node.get_logger().warning("Connection closed. Waiting to reconnecting...")
     finally:
         node.websocket_clients.remove(websocket)
 
@@ -113,21 +104,35 @@ def make_handler(node):
         await websocket_handler(ws, node)
     return handler
 
-async def main(port, loop):
+def make_shutdown_handler(ros_thread, loop):
+    def shutdown(signal_number, frame):
+        global _do_shutdown
+        if _do_shutdown :
+            _do_shutdown = False
+            rclpy.shutdown()
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
+            loop.call_soon_threadsafe(loop.stop)
+            ros_thread.join()
+    return shutdown
+
+async def main(port, loop, pub, sub):
     rclpy.init()
-    node = TopicBridgeNode(loop)
+    node = TopicBridgeNode(loop, pub, sub)
 
     # Run rclpy executor in separate thread
     def ros_spin():
         rclpy.spin(node)
-
     ros_thread = Thread(target=ros_spin, daemon=True)
     ros_thread.start()
+    shutdown = make_shutdown_handler(ros_thread, loop)
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
 
     # Start websocket server (asyncio)
     basedir = os.path.dirname(__file__)  # this directory
-    certfile = os.path.join(basedir, "..", "certificates", "localhost.pem")
-    keyfile = os.path.join(basedir, "..", "certificates", "localhost-key.pem")
+    certfile = os.path.join(basedir, "..", "certificates", "cert.pem")
+    keyfile = os.path.join(basedir, "..", "certificates", "key.pem")
 
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain(certfile=certfile, keyfile=keyfile)
@@ -138,16 +143,36 @@ async def main(port, loop):
     )
 
     await start_server
-    print("WebSocket server running at wss://0.0.0.0:"+str(port))
+    node.get_logger().info("WebSocket server running at wss://0.0.0.0:"+str(port))
     try:
         await asyncio.Future()
-    except KeyboardInterrupt:
+    except asyncio.CancelledError:
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            node.destroy_node()
+            rclpy.shutdown()
 
 if __name__ == '__main__':
-    port = 9090
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main(port, loop))
+    if len(sys.argv) >= 3 :
+        port = int(sys.argv[2])
+    else:
+        port = 9090
+    if len(sys.argv) >= 2 :
+        topic_list_file = sys.argv[1]
+    else:
+        topic_list_file = 'default_topics.py'
+    if topic_list_file.endswith('.py') :
+        topic_list_file = topic_list_file.removesuffix('.py')
+    topic_list = importlib.import_module(topic_list_file)
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # If this thread doesn't have a event_loop, create a new one.
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    # loop = asyncio.get_event_loop()
+    loop.run_until_complete(main(port, loop,
+                                 topic_list.initial_pub,
+                                 topic_list.initial_sub ))
